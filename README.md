@@ -11,12 +11,35 @@ without hot-editing OpenClaw stock plugin files.
 
 `atlas-memory-opencalw-plugin`
 
-## Load Strategy
+## Install / Enable
 
-1. Put plugin directory in `plugins.internal.load.extraDirs`
-2. Enable this plugin entry
-3. Disable stock `memory-core` entry
-4. Restart gateway
+```bash
+# install from local path
+openclaw plugins install /home/ubuntu/clawd/plugins/atlas-memory-opencalw-plugin --link
+
+# restart to load
+openclaw gateway restart
+```
+
+After install, OpenClaw will switch the `memory` slot to this plugin.
+You can verify with:
+
+```bash
+openclaw plugins list | grep -E "atlas-memory-opencalw-plugin|memory-core|memory-lancedb"
+```
+
+## Rollback
+
+```bash
+# disable atlas plugin
+openclaw plugins disable atlas-memory-opencalw-plugin
+
+# enable stock memory-core
+openclaw plugins enable memory-core
+
+# restart
+openclaw gateway restart
+```
 
 ## Env
 
