@@ -1,0 +1,9 @@
+{
+  "id": "atlas-memory-opencalw-plugin",
+  "kind": "memory",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
