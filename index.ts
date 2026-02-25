@@ -1,7 +1,15 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
-import { emptyPluginConfigSchema, jsonResult } from "openclaw/plugin-sdk";
+import { jsonResult } from "openclaw/plugin-sdk";
 
-const ATLAS_BASE = (process.env.ATLAS_MEMORY_BASE_URL || "http://127.0.0.1:6420").replace(/\/$/, "");
+const DEFAULT_BASE_URLS: string[] = [];
+const PLUGIN_ID = "atlas-memory-opencalw-plugin";
+const DEFAULT_TIMEOUT_MS = 5000;
+
+type AtlasPluginConfig = {
+  baseUrl?: string;
+  baseUrls?: string[];
+  timeoutMs?: number;
+};
 
 type AtlasSearchItem = {
   id: string;
@@ -11,21 +19,98 @@ type AtlasSearchItem = {
   updated_at?: string;
 };
 
-async function atlasSearch(query: string, limit: number): Promise<AtlasSearchItem[]> {
-  const res = await fetch(`${ATLAS_BASE}/memories/search`, {
+function normalizeBase(raw: string): string {
+  return raw.replace(/\/+$/, "");
+}
+
+function resolveConfigBaseUrls(api: OpenClawPluginApi): string[] {
+  const dedupe = (values: string[]): string[] => {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const value of values) {
+      if (!seen.has(value)) {
+        seen.add(value);
+        out.push(value);
+      }
+    }
+    return out;
+  };
+
+  const entry = (api.config?.plugins?.entries?.[PLUGIN_ID] ?? {}) as any;
+  const cfg = ((entry?.config ?? entry) ?? {}) as AtlasPluginConfig;
+
+  const remoteBase = (api.config as any)?.agents?.defaults?.memorySearch?.remote?.baseUrl;
+  if (typeof remoteBase === "string" && remoteBase.trim()) {
+    return dedupe([normalizeBase(remoteBase.trim()), ...DEFAULT_BASE_URLS]);
+  }
+
+  const fromConfig = Array.isArray(cfg.baseUrls)
+    ? cfg.baseUrls.filter((v) => typeof v === "string" && v.trim().length > 0).map((v) => normalizeBase(v.trim()))
+    : [];
+  if (fromConfig.length > 0) return dedupe([...fromConfig, ...DEFAULT_BASE_URLS]);
+
+  if (typeof cfg.baseUrl === "string" && cfg.baseUrl.trim()) {
+    return dedupe([normalizeBase(cfg.baseUrl.trim()), ...DEFAULT_BASE_URLS]);
+  }
+  if (process.env.ATLAS_MEMORY_BASE_URL?.trim()) {
+    return dedupe([normalizeBase(process.env.ATLAS_MEMORY_BASE_URL.trim()), ...DEFAULT_BASE_URLS]);
+  }
+  if (process.env.ATLAS_BASE_URL?.trim()) {
+    return dedupe([normalizeBase(process.env.ATLAS_BASE_URL.trim()), ...DEFAULT_BASE_URLS]);
+  }
+  return DEFAULT_BASE_URLS;
+}
+
+function resolveTimeoutMs(api: OpenClawPluginApi): number {
+  const entry = (api.config?.plugins?.entries?.[PLUGIN_ID] ?? {}) as any;
+  const cfg = ((entry?.config ?? entry) ?? {}) as AtlasPluginConfig;
+  const n = Number(cfg.timeoutMs);
+  return Number.isFinite(n) && n >= 500 ? Math.floor(n) : DEFAULT_TIMEOUT_MS;
+}
+
+async function fetchJsonFromAtlas(api: OpenClawPluginApi, path: string, init?: RequestInit): Promise<any> {
+  const bases = resolveConfigBaseUrls(api);
+  const timeoutMs = resolveTimeoutMs(api);
+  const errors: string[] = [];
+
+  if (!bases.length) {
+    throw new Error("Atlas base URL not configured");
+  }
+
+  for (const base of bases) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(`${base}${path}`, { ...(init ?? {}), signal: controller.signal });
+      if (!res.ok) {
+        errors.push(`${base}: HTTP ${res.status}`);
+        continue;
+      }
+      return await res.json();
+    } catch (err) {
+      errors.push(`${base}: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw new Error(`Atlas unavailable (${errors.join("; ")})`);
+}
+
+async function atlasSearch(api: OpenClawPluginApi, query: string, limit: number): Promise<AtlasSearchItem[]> {
+  const data = (await fetchJsonFromAtlas(api, "/memories/search", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query, limit }),
-  });
-  if (!res.ok) throw new Error(`Atlas search failed: ${res.status}`);
-  const data = (await res.json()) as { results?: AtlasSearchItem[] };
+  })) as { results?: AtlasSearchItem[] };
   return Array.isArray(data?.results) ? data.results : [];
 }
 
-async function atlasGet(id: string): Promise<{ id: string; title?: string; content?: string }> {
-  const res = await fetch(`${ATLAS_BASE}/memories/${encodeURIComponent(id)}`);
-  if (!res.ok) throw new Error(`Atlas get failed: ${res.status}`);
-  return (await res.json()) as { id: string; title?: string; content?: string };
+async function atlasGet(api: OpenClawPluginApi, id: string): Promise<{ id: string; title?: string; content?: string }> {
+  return (await fetchJsonFromAtlas(api, `/memories/${encodeURIComponent(id)}`)) as {
+    id: string;
+    title?: string;
+    content?: string;
+  };
 }
 
 function extractAtlasId(path: string): string | null {
@@ -52,7 +137,15 @@ export default {
   name: "Atlas Memory OpenCalw Plugin",
   description: "Atlas-backed memory_search/memory_get with OpenClaw-compatible result shape",
   kind: "memory",
-  configSchema: emptyPluginConfigSchema(),
+  configSchema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      baseUrl: { type: "string" },
+      baseUrls: { type: "array", items: { type: "string" } },
+      timeoutMs: { type: "number", minimum: 500 },
+    },
+  },
   register(api: OpenClawPluginApi) {
     api.registerTool(
       {
@@ -80,7 +173,7 @@ export default {
               return jsonResult({ results: [], provider: "atlas", mode: "atlas-direct" });
             }
 
-            const rows = await atlasSearch(query, maxResults);
+            const rows = await atlasSearch(api, query, maxResults);
             const filtered = minScore == null ? rows : rows.filter((r) => (Number(r.score ?? 0) >= minScore));
 
             const results = filtered.map((r) => {
@@ -149,7 +242,7 @@ export default {
                 error: "Path must be atlas:<id> (or include an Atlas UUID).",
               });
             }
-            const mem = await atlasGet(id);
+            const mem = await atlasGet(api, id);
             const full = String(mem?.content ?? "");
             const text = toLinesSlice(full, Number(params?.from), Number(params?.lines));
             return jsonResult({

@@ -4,6 +4,20 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {}
+    "properties": {
+      "baseUrl": {
+        "type": "string"
+      },
+      "baseUrls": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "timeoutMs": {
+        "type": "number",
+        "minimum": 500
+      }
+    }
   }
 }
