@@ -11,6 +11,7 @@ type AtlasPluginConfig = {
   timeoutMs?: number;
   autoInject?: boolean;
   autoInjectLimit?: number;
+  autoInjectMinScore?: number;
 };
 
 type AtlasSearchItem = {
@@ -151,6 +152,12 @@ function resolveAutoInjectLimit(api: OpenClawPluginApi): number {
   return 5;
 }
 
+function resolveAutoInjectMinScore(api: OpenClawPluginApi): number {
+  const cfg = getPluginConfig(api);
+  const n = Number(cfg.autoInjectMinScore);
+  return Number.isFinite(n) && n > 0 ? n : 0.04;
+}
+
 function truncateText(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
   return `${text.slice(0, maxLen)}...`;
@@ -184,6 +191,7 @@ export default {
       timeoutMs: { type: "number", minimum: 500 },
       autoInject: { type: "boolean", default: true },
       autoInjectLimit: { type: "number", minimum: 1, maximum: 20, default: 5 },
+      autoInjectMinScore: { type: "number", minimum: 0, maximum: 1, default: 0.04 },
     },
   },
   register(api: OpenClawPluginApi) {
@@ -197,8 +205,10 @@ export default {
         const query = prompt.slice(0, 200).trim();
         if (!query) return;
 
-        const rows = await atlasSearch(api, query, resolveAutoInjectLimit(api));
-        if (!Array.isArray(rows) || rows.length === 0) return;
+        const minScore = resolveAutoInjectMinScore(api);
+        const rawRows = await atlasSearch(api, query, resolveAutoInjectLimit(api));
+        const rows = (rawRows ?? []).filter((r) => Number(r.score ?? 0) >= minScore);
+        if (rows.length === 0) return;
 
         return {
           prependContext: formatAutoRecallContext(rows),
