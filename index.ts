@@ -9,6 +9,8 @@ type AtlasPluginConfig = {
   baseUrl?: string;
   baseUrls?: string[];
   timeoutMs?: number;
+  autoInject?: boolean;
+  autoInjectLimit?: number;
 };
 
 type AtlasSearchItem = {
@@ -132,6 +134,42 @@ function toLinesSlice(text: string, from?: number, lines?: number): string {
   return arr.slice(start, end).join("\n");
 }
 
+function getPluginConfig(api: OpenClawPluginApi): AtlasPluginConfig {
+  const entry = (api.config?.plugins?.entries?.[PLUGIN_ID] ?? {}) as any;
+  return ((entry?.config ?? entry) ?? {}) as AtlasPluginConfig;
+}
+
+function resolveAutoInject(api: OpenClawPluginApi): boolean {
+  const cfg = getPluginConfig(api);
+  return cfg.autoInject !== false;
+}
+
+function resolveAutoInjectLimit(api: OpenClawPluginApi): number {
+  const cfg = getPluginConfig(api);
+  const n = Number(cfg.autoInjectLimit);
+  if (Number.isFinite(n) && n > 0) return Math.max(1, Math.min(20, Math.floor(n)));
+  return 5;
+}
+
+function truncateText(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text;
+  return `${text.slice(0, maxLen)}...`;
+}
+
+function formatAutoRecallContext(rows: AtlasSearchItem[]): string {
+  const lines: string[] = ["[Atlas Memory Auto-Recall]"];
+  rows.forEach((r, idx) => {
+    const title = String(r.title ?? "(untitled)").trim() || "(untitled)";
+    const snippetRaw = String(r.content ?? "").trim();
+    const snippet = truncateText(snippetRaw, 300);
+    const score = Number(r.score ?? 0);
+    lines.push(`${idx + 1}. title: ${title}`);
+    lines.push(`   score: ${score.toFixed(4)}`);
+    lines.push(`   snippet: ${snippet || "(no snippet)"}`);
+  });
+  return lines.join("\n");
+}
+
 export default {
   id: "atlas-memory-opencalw-plugin",
   name: "Atlas Memory OpenCalw Plugin",
@@ -144,9 +182,33 @@ export default {
       baseUrl: { type: "string" },
       baseUrls: { type: "array", items: { type: "string" } },
       timeoutMs: { type: "number", minimum: 500 },
+      autoInject: { type: "boolean", default: true },
+      autoInjectLimit: { type: "number", minimum: 1, maximum: 20, default: 5 },
     },
   },
   register(api: OpenClawPluginApi) {
+    api.on("before_prompt_build", async (event: any) => {
+      try {
+        if (!resolveAutoInject(api)) return;
+
+        const prompt = String(event?.prompt ?? "").trim();
+        if (!prompt) return;
+
+        const query = prompt.slice(0, 200).trim();
+        if (!query) return;
+
+        const rows = await atlasSearch(api, query, resolveAutoInjectLimit(api));
+        if (!Array.isArray(rows) || rows.length === 0) return;
+
+        return {
+          prependContext: formatAutoRecallContext(rows),
+        };
+      } catch {
+        // silent skip: do not affect normal prompt flow
+        return;
+      }
+    });
+
     api.registerTool(
       {
         label: "Memory Search",
