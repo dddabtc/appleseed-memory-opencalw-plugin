@@ -1,5 +1,7 @@
 {
   "id": "atlas-memory-opencalw-plugin",
+  "name": "Atlas Memory OpenClaw Plugin",
+  "description": "Atlas-backed memory_search/memory_get/memory_save plus auto-recall injection.",
   "kind": "memory",
   "configSchema": {
     "type": "object",
@@ -17,6 +19,22 @@
       "timeoutMs": {
         "type": "number",
         "minimum": 500
+      },
+      "autoInject": {
+        "type": "boolean",
+        "default": true
+      },
+      "autoInjectLimit": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 20,
+        "default": 5
+      },
+      "autoInjectMinScore": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "default": 0.04
       }
     }
   }
