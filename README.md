@@ -69,6 +69,72 @@ It also respects these fallbacks, in order:
 4. `ATLAS_MEMORY_BASE_URL`
 5. `ATLAS_BASE_URL`
 
+## Multi-Agent Identity
+
+All API requests automatically include `agent_id`, `agent_role`, and `user_id` for multi-agent isolation. Configure via plugin config or environment variables:
+
+```json
+{
+  "config": {
+    "baseUrl": "http://100.119.6.34:6420",
+    "agentId": "openclaw",
+    "agentRole": "OpenClaw助手",
+    "userId": "zdl"
+  }
+}
+```
+
+Or via environment variables: `ATLAS_AGENT_ID`, `ATLAS_AGENT_ROLE`, `ATLAS_USER_ID`.
+
+If not configured, the Atlas server auto-fills `agent_id` from the client IP.
+
+## Hermes Agent Installation
+
+[Hermes Agent](https://github.com/NousResearch/hermes-agent) natively supports MCP servers. You can connect Atlas Memory as an MCP tool server without this OpenClaw plugin.
+
+### 1. Install the MCP proxy
+
+```bash
+cd /path/to/atlas-memory
+pip install -e .
+```
+
+### 2. Add to Hermes config
+
+Edit `~/.hermes/config.yaml`:
+
+```yaml
+mcp_servers:
+  atlas-memory:
+    command: "python3"
+    args: ["-m", "atlas_memory.mcp.remote_proxy"]
+    env:
+      ATLAS_REMOTE_URL: "http://100.119.6.34:6420"
+      ATLAS_AGENT_ID: "hermes"
+      ATLAS_AGENT_ROLE: "Hermes助手"
+      ATLAS_USER_ID: "zdl"
+```
+
+This gives Hermes three tools: `mcp_atlas-memory_memory_search`, `mcp_atlas-memory_memory_store`, `mcp_atlas-memory_memory_list`.
+
+### 3. Verify
+
+```bash
+hermes chat
+> /tools            # should list atlas-memory tools
+> search my preferences   # triggers memory_search
+```
+
+### Alternative: Direct HTTP (no MCP proxy needed)
+
+If your Atlas Memory server is reachable over HTTP, you can skip the MCP proxy and call the REST API directly from a Hermes skill or custom tool. The endpoints are:
+
+| Method | Endpoint | Body |
+|--------|----------|------|
+| `POST` | `/memories/search` | `{"query": "...", "limit": 8, "agent_id": "hermes", "user_id": "zdl"}` |
+| `POST` | `/memories` | `{"content": "...", "title": "...", "agent_id": "hermes", "user_id": "zdl"}` |
+| `GET` | `/memories?user_id=zdl` | — |
+
 ## API Contract (Atlas)
 
 - Search: `POST /memories/search` with `{ query, limit }`
