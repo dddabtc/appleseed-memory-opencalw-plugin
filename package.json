@@ -1,6 +1,6 @@
 {
   "name": "appleseed-memory-opencalw-plugin",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Appleseed-backed memory plugin for OpenClaw",
   "type": "module",
