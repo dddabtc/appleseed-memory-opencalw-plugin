@@ -34,8 +34,20 @@ You'll be shown the detected paths and asked to confirm. Add `--yes` to skip.
 | `--user-id` | Attached to each memory | empty |
 | `--agent-id` | Attached to each memory | empty |
 | `--hostname` | Label for metadata | `$(hostname)` |
+| `--watch-dir DIR` | Extra directory to watch; can repeat. Useful when notes live outside `$HOME` (e.g. VPS root user + `/home/ubuntu/clawd/memory`). Augments autodetection. | empty |
+| `--watch-file FILE` | Extra single file to watch; can repeat. | empty |
 | `--yes`, `-y` | Skip the confirmation prompt | off |
 | `--user-systemd` | Force user-level systemd on Linux | auto |
+
+**Example: VPS root user with legacy paths**
+
+```bash
+bash install.sh --agent openclaw \
+  --watch-dir /home/ubuntu/clawd/memory \
+  --atlas http://localhost:6420/memories \
+  --user-id dda --agent-id dda225-root \
+  --yes
+```
 
 ### Service selection
 

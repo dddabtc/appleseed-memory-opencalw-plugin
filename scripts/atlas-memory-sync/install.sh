@@ -7,6 +7,7 @@
 # Usage:
 #   install.sh --agent openclaw [--home ~/.openclaw] [--atlas URL]
 #              [--user-id ID] [--agent-id ID] [--hostname HOST]
+#              [--watch-dir DIR]... [--watch-file FILE]...
 #              [--yes] [--user-systemd]
 #
 # --agent           openclaw | hermes                             (required)
@@ -15,6 +16,8 @@
 # --user-id         Passed as user_id on every memory payload
 # --agent-id        Passed as agent_id on every memory payload
 # --hostname        Logical host label. Default: $(hostname)
+# --watch-dir DIR   Extra directory to watch (can repeat). Augments autodetection.
+# --watch-file F    Extra single file to watch (can repeat). Augments autodetection.
 # --yes, -y         Skip the confirmation prompt
 # --user-systemd    Force user-level systemd instead of system (Linux only)
 
@@ -28,6 +31,7 @@ AGENT_ID=""
 HOSTNAME_LABEL="$(hostname)"
 ASSUME_YES=0
 FORCE_USER_SYSTEMD=0
+declare -a EXTRA_DIRS EXTRA_FILES
 
 usage() { sed -n '1,30p' "$0"; exit 1; }
 
@@ -39,6 +43,8 @@ while [[ $# -gt 0 ]]; do
         --user-id)      USER_ID="$2"; shift 2;;
         --agent-id)     AGENT_ID="$2"; shift 2;;
         --hostname)     HOSTNAME_LABEL="$2"; shift 2;;
+        --watch-dir)    EXTRA_DIRS+=("$2"); shift 2;;
+        --watch-file)   EXTRA_FILES+=("$2"); shift 2;;
         --yes|-y)       ASSUME_YES=1; shift;;
         --user-systemd) FORCE_USER_SYSTEMD=1; shift;;
         -h|--help)      usage;;
@@ -86,6 +92,26 @@ elif [[ "$AGENT" == "hermes" ]]; then
     add_file_if_exists "$AGENT_HOME/memory/MEMORY.md"
     add_file_if_exists "$AGENT_HOME/MEMORY.md"
 fi
+
+# User-supplied paths (--watch-dir / --watch-file), kept verbatim.
+# These are added even if currently empty of .md files — useful when a daily
+# note file will exist later.
+for d in "${EXTRA_DIRS[@]+"${EXTRA_DIRS[@]}"}"; do
+    if [[ -d "$d" ]]; then
+        CAND_DIRS+=("$d")
+    else
+        echo "WARN: --watch-dir '$d' does not exist; will be created on first write."
+        CAND_DIRS+=("$d")
+    fi
+done
+for f in "${EXTRA_FILES[@]+"${EXTRA_FILES[@]}"}"; do
+    if [[ -f "$f" ]]; then
+        CAND_FILES+=("$f")
+    else
+        echo "WARN: --watch-file '$f' does not exist yet; will sync once created."
+        CAND_FILES+=("$f")
+    fi
+done
 
 # Deduplicate
 dedup_array() {
